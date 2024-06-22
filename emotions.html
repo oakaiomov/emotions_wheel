@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotions Circle</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+
+        .app {
+            margin: 20px;
+            display: flex;
+        }
+
+        @media (max-width: 850px) {
+            .app {
+                flex-direction: column;
+                align-items: center;
+                padding-bottom: 20px;
+            }
+
+            #controls {
+                margin-top: 15px;
+            }
+        }
+
+        svg {
+            width: 500px;
+            height: 500px;
+        }
+
+        .sector {
+            cursor: pointer;
+        }
+
+        text {
+            font-size: 2.1px;
+            pointer-events: none;
+        }
+
+        #controls {
+            display: flex;
+            flex-direction: column;
+            width: 300px;
+            margin-left: 15px;
+        }
+
+        #saved {
+            display: flex;
+            flex-direction: column;
+            margin-top: 10px;
+        }
+
+        .item {
+            display: flex;
+            margin: 2px;
+            border-radius: 6px;
+            border: 1px solid lightgray;
+            cursor: pointer;
+        }
+
+        .item-delete {
+            margin: 2px;
+            margin-left: auto;
+        }
+
+        .emotion-dot {
+            width: 20px;
+            height: 20px;
+            margin: 5px;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <svg id="circle-svg" viewBox="0 0 64 64"></svg>
+        <div id="controls">
+            <button id="btn-new">Create New</button>
+            <div id="saved"></div>
+        </div>
+    </div>
+    <script>
+        const crclPos = 32;
+        let current = []; // Объект для хранения состояния секторов
+        let saved = []; // Объект для хранения состояния колес
+
+        // Эмоции из колеса эмоций Плутчика
+        let emotions = [
+            ["нестяма", "захоплення", "жах", "пригніч.", "горе", "відраза", "лють", "пильність"],
+            ["радість", "довіра", "страх", "дивування", "журба", "гидливість", "злість", "очікування"],
+            ["спокій", "любов", "визнання", "покорність", "побоювання", "тремтіння", "відволікання", "осуд", "задум", "жаль", "нудьга", "презирство", "досада", "агрессія", "зацікавлення",  "піднесення"]
+        ];
+
+        // Hue значения для соответствующих эмоций
+        let hues = [
+            [60, 90, 180, 200, 240, 270, 0, 30],
+            [60, 90, 180, 200, 240, 270, 0, 30],
+            [60, 75, 90, 105, 180, 190, 200, 220, 240, 255, 270, 315, 0, 15, 30, 45]
+        ];
+
+        function getColor(level, index, pressed) {
+            let hue = hues[level][index];
+            let lightness
+            if (pressed) {
+                lightness = 50 + level * 10;
+            } else {
+                lightness = 80 + level * 5;
+            }
+            let saturation = 100;
+            if (level == 0) saturation = 80;
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        }
+
+        function polarToCartesian(x, y, radius, angle) {
+            let angleInRadians = (angle - 90) * Math.PI / 180.0;
+            return {
+                x: x + (radius * Math.cos(angleInRadians)),
+                y: y + (radius * Math.sin(angleInRadians))
+            };
+        }
+
+        function describeArc(x, y, radius, startA, endA, sweepF) {
+            let start = polarToCartesian(x, y, radius, endA);
+            let end = polarToCartesian(x, y, radius, startA);
+            let largeArcFlag = endA - startA <= 180 ? "0" : "1";
+
+            return [
+                "M", start.x, start.y,
+                "A", radius, radius, 0, largeArcFlag, sweepF, end.x, end.y
+            ].join(" ");
+        }
+
+        function createSector(iRadius, oRadius, startA, endA) {
+            let outerArc = describeArc(crclPos, crclPos, oRadius, startA, endA, 0);
+            let innerArc = describeArc(crclPos, crclPos, iRadius, endA, startA, 1);
+            let startOuter = polarToCartesian(crclPos, crclPos, oRadius, startA);
+            let startInner = polarToCartesian(crclPos, crclPos, iRadius, startA);
+            let endOuter = polarToCartesian(crclPos, crclPos, oRadius, endA);
+            let endInner = polarToCartesian(crclPos, crclPos, iRadius, endA);
+
+            return [
+                "M", startOuter.x, startOuter.y, // Move to start of outer arc
+                outerArc, // Draw outer arc
+                "L", endInner.x, endInner.y, // Line to end of inner arc
+                innerArc, // Draw inner arc
+                "L", startOuter.x, startOuter.y, // Line back to start of outer arc
+                "Z"
+            ].join(" ");
+        }
+
+        function clickHandler(e) {
+            const [name, level, index] = e.target.id.split('-')
+            if (current.find($sector => $sector == e.target.id)) {
+                current = current.filter($sector => $sector !== e.target.id);
+                e.target.setAttribute("fill", getColor(level, index, false));
+            } else {
+                current.push(e.target.id);
+                e.target.setAttribute("fill", getColor(level, index, true));
+            }
+        }
+
+        function addSector(svg, level, index, iRadius, oRadius, startA, endA, label, amount, flipped) {
+            let sectorId = `sector-${level}-${index}`;
+
+            // Background
+            let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", createSector(iRadius, oRadius, startA, endA));
+            path.setAttribute("fill", getColor(level, index, current.includes(sectorId)));
+            path.setAttribute("class", "sector");
+            path.setAttribute("id", sectorId);
+            path.addEventListener("click", clickHandler);
+            svg.appendChild(path);
+
+            // Label
+            var textPathId = `textPath-${level}-${index}`;
+            var pathData;
+            if (flipped) {
+                pathData = describeArc(crclPos, crclPos, oRadius - 1, startA, endA, 0); // Path for text
+            } else {
+                pathData = describeArc(crclPos, crclPos, oRadius - 1, endA, startA, 1); // Path for text
+            }
+
+            var textPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            textPath.setAttribute("id", textPathId);
+            textPath.setAttribute("d", pathData);
+            textPath.setAttribute("fill", "none");
+            textPath.setAttribute("stroke", "none");
+            svg.appendChild(textPath);
+
+            var text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            if(flipped) {
+                text.setAttribute("dy", -3); // Подъем текста для центровки
+            } else {
+                text.setAttribute("dy", 4); // Подъем текста для центровки
+            }
+            var textPathElement = document.createElementNS("http://www.w3.org/2000/svg", "textPath");
+            textPathElement.setAttribute("href", `#${textPathId}`);
+            textPathElement.setAttribute("startOffset", "50%");
+            textPathElement.setAttribute("text-anchor", "middle");
+
+            textPathElement.textContent = label;
+
+            text.appendChild(textPathElement);
+            svg.appendChild(text);
+        }
+
+        function addLevel(svg, level, amount, size) {
+            const radiusDiff = 8;
+            const iRadius = (level + 1) * radiusDiff;
+            const oRadius = (level + 2) * radiusDiff;
+
+            for (var i = 0; i < amount; i++) {
+                const startA = i * size - (size / 2)
+                const endA = (i + 1) * size - (size / 2)
+                let flipped = false;
+                if(amount == 8) {
+                    flipped = i >= 3 && i <= 5;
+                } else {
+                    flipped = i >= 5 && i <= 11;
+                }
+                addSector(svg, level, i, iRadius, oRadius, startA, endA, emotions[level][i], amount, flipped)
+            }
+        }
+
+        function redrawWheel () {
+            let svg = document.getElementById("circle-svg");
+            svg.innerHTML = '';
+            addLevel(svg, 0, 8, 45);
+            addLevel(svg, 1, 8, 45);
+            addLevel(svg, 2, 16, 22.5);
+        }
+
+        function redrawSaved () {
+            let container = document.getElementById("saved");
+            container.innerHTML = '';
+
+            for(idx in saved) {
+                const item = document.createElement("div");
+                item.className = 'item';
+                item.setAttribute('saved-id', idx);
+                item.addEventListener('click', itemHandlerSelect);
+
+                for(idx2 in saved[idx]) {
+                    const [word, level, index] = saved[idx][idx2].split('-')
+
+                    const dot = document.createElement("div");
+                    dot.className = 'emotion-dot';
+                    dot.style = `background-color: ${getColor(level, index, true)};`
+
+                    item.appendChild(dot);
+                }
+
+                let delBtn = document.createElement("button");
+                delBtn.innerText = 'X';
+                delBtn.className = 'item-delete';
+                delBtn.setAttribute('saved-id', idx);
+                delBtn.addEventListener('click', itemHandlerDelete);
+                item.appendChild(delBtn);
+
+                container.appendChild(item);
+            }
+        }
+
+        function buttonHandlerNew() {
+            if(current.length) {
+                saved.push(current);
+                current = []
+            }
+            redrawWheel();
+            redrawSaved();
+        }
+
+        function itemHandlerSelect(e) {
+            current = saved[e.target.getAttribute('saved-id')];
+            redrawWheel();
+        }
+
+        function itemHandlerDelete(e) {
+            e.stopPropagation();
+            saved.splice(e.target.getAttribute('saved-id'), 1);
+            redrawSaved();
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            redrawWheel();
+            redrawSaved();
+            let btnNew = document.getElementById("btn-new");
+            btnNew.addEventListener('click', buttonHandlerNew);
+        });
+    </script>
+</body>
+
+</html>
